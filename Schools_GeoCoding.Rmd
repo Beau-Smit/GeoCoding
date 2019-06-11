@@ -1,0 +1,174 @@
+---
+title: "Geo-Coding"
+author: "Beau Smit"
+date: "July 16, 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, message=FALSE, warning=FALSE}
+rm(list=ls())
+
+library(shiny)
+library(tidyverse)
+library(ggplot2)
+library(stringr)
+library(plyr)
+library(tidyverse)
+library(sf)
+library(albersusa)
+library(tmap)
+library(tmaptools)
+library(ggmap)
+library(googleway)
+library(gmapsdistance)
+```
+
+```{r Clean data}
+clean_data <- function(col){
+  new_col = ifelse(grepl('\\[.+\\]', col), gsub('\\[.+\\]', '', col), col)
+  new_col = ifelse(grepl('[^\001-\177]', new_col), gsub('[^\001-\177]', ' ', new_col), new_col)
+  return(new_col)
+}
+
+#D1 = readRDS("D1_schools.Rds")
+D1 = read_csv("D1_schools.csv")
+D1 <- D1 %>%
+  select(-Type) %>%
+  mutate("Division" = 1)
+
+#D2 = readRDS("D2_schools.Rds")
+D2 = read_csv("D2_schools.csv")
+D2 <- D2 %>%
+  mutate("Division" = 2)
+
+D3 = readRDS("D3_schools.Rds")
+D3 <- D3 %>%
+  mutate("Division" = 3)
+
+All <- rbind(D1, D2, D3)
+All <- All %>% 
+  mutate_all(clean_data)
+All <- All %>%
+  mutate("Location" = paste(All$City, All$State, sep = ', '))
+All[which(All$School == ''), ]$School = "Claremont McKenna College"
+```
+
+```{r Get/Save/Load GeoCodes}
+#output <- geocode_OSM(All$Location)
+#saveRDS(output, file = "All_schools_GeoCodes.Rds")
+
+# No results found for "Rosement, Pennsylvania".No results found for "Sweet Briar, Virginia"
+missing_cities <- c("Rosement, Pennsylvania", "Sweet Briar, Virginia") # Save for manual lookups
+
+output <- readRDS("All_schools_GeoCodes.Rds")
+```
+
+```{r QA of latitude values}
+# Check range of values
+hist(output$lat)
+
+# Check Southernmost latitudes
+# latitude 23 is about the southern tip of Florida
+check_lat <- output[which(output$lat < 23), ]
+# Hawaiian schools are more South, they are legitimate coordinates
+mistakes_lat <- check_lat[!grepl('Hawa', check_lat$query, ignore.case = T), ]
+# Remaining are mistakes
+
+# Check Northernmost latitudes
+# Latitude 55 is about the Southern tip of Alaska
+output[output$lat > 55, ]$query # "Fairbanks, Alaska" "Anchorage, Alaska"
+# Northernmost cities are truly in the USA
+```
+
+```{r QA of longitude values}
+# Check range of values
+hist(output$lon)
+
+# Check Easternmost longitudes
+# longitude -70 is about the Eastern tip of Maine
+check_lon <- output[which(output$lon > -70), ]
+# Maine schools are more East, they are legitimate coordinates
+mistakes_lon <- check_lon[!grepl('Maine', check_lon$query, ignore.case = T), ]
+# Remaining are mistakes
+
+# Check Westernmost longitudes
+# Longitude -135 is about the Eastern tip of Alaska
+output[output$lon < -135, ]$query # only Hawai'i and Alaska
+# Westernmost cities are truly in the USA
+```
+
+```{r Fix mistake coordinates}
+# Combine all mistake coordinates
+mistakes <- rbind(mistakes_lat, mistakes_lon)
+# Remove duplicate Cities
+mistake_cities <- unique(mistakes$query)
+# Gather all cities that I need to look up manually
+manual_lookups <- c(missing_cities, mistake_cities);manual_lookups
+
+# Rosement: Actually called Rosemont, not Rosement
+# Sweet Briar is an unicorporated community, nearest city is Amherst, Virginia
+output_2 <- geocode_OSM(c("Rosemont, Pennsylvania", "Amherst, Virginia"))
+output <- rbind(output, output_2)
+
+# GeoCode picked up San Francisco, Venezuela instead. Actual coord = 37.7749, -122.4194
+# GeoCode picked up San Jose, Costa Rica instead. Actual coordinates = 37.3382, -121.8863
+# GeoCode picked up Santa Clara, Cuba instead. Actual coordinates = 37.3541, -121.9552
+# GeoCode picked up Santa Cruz, Bolivia instead. Actual coordinates = 36.9741, -122.0308
+add_USA <- function(city){
+  str_c(city, "USA", sep = ", ")
+}
+relookup <- unlist(lapply(mistake_cities, FUN = add_USA))
+output_3 <- geocode_OSM(relookup)
+
+# Overwrite coordinates of these cities in output
+overwrite_San_Fran <- which(grepl('San Francisco', output$query, ignore.case = T))
+output[overwrite_San_Fran, ] = output_3[1, ]
+overwrite_San_Jose <- which(grepl('San Jose', output$query, ignore.case = T))
+output[overwrite_San_Jose, ] = output_3[2, ]
+overwrite_Santa_Clara <- which(grepl('Santa Clara', output$query, ignore.case = T))
+output[overwrite_Santa_Clara, ] = output_3[3, ]
+overwrite_Santa_Cruz <- which(grepl('Santa Cruz', output$query, ignore.case = T))
+output[overwrite_Santa_Cruz, ] = output_3[4, ]
+```
+
+```{r One last QA}
+# Latitude
+hist(output$lat)
+
+# Northernmost
+output[output$lat == max(output$lat), ]$query # "Fairbanks, Alaska" Good!
+
+# Southernmost
+output[output$lat == min(output$lat), ]$query # "Hilo, Hawai'i" Good!
+
+# Longitude
+hist(output$lon)
+
+# Easternmost
+output[output$lon == max(output$lon), ]$query # "Presque Isle, Maine" Good!
+
+# Westernmost
+output[output$lon == min(output$lon), ]$query # "Honolulu, Hawaii" Good!
+```
+
+Now that we have all colleges with the correct location, let's join the location information with the college information.
+
+```{r Join Dataframes}
+# sort alphabetically to bind correctly
+output <- rename(output, c("query" = "Location"))
+# take off ', USA' for the merge
+output$Location <- ifelse(grepl(', USA', output$Location, ignore.case = T), gsub(', USA', '', output$Location, ignore.case = T), output$Location)
+# Correct the spellings in All
+All[All$Location == "Rosement, Pennsylvania", ]$Location = "Rosemont, Pennsylvania"
+All[All$Location == "Sweet Briar, Virginia", ]$Location = "Amherst, Virginia"
+
+large_frame <- join(All, output, by = "Location", type = "full", match = "first")
+anyNA(large_frame) # FALSE Good!
+
+# Save data
+#saveRDS(large_frame, "All_School_GeoCodes_Cleaned.Rds")
+```

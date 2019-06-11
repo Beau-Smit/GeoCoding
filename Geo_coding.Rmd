@@ -1,0 +1,75 @@
+---
+title: "Geo-Coding"
+author: "Beau Smit"
+date: "July 16, 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+rm(list=ls())
+
+library(shiny)
+library(tidyverse)
+library(ggplot2)
+library(plyr)
+library(tidyverse)
+library(sf)
+library(albersusa)
+library(tmap)
+library(tmaptools)
+library(ggmap)
+library(googleway)
+library(gmapsdistance)
+
+D3 = readRDS("D3_schools.Rds")
+```
+
+```{r USA}
+usa <- usa_sf('laea')
+# options: "longlat", "laea", "lcc", "eqdc", "aeqd"
+#plot(usa$geometry)
+```
+
+```{r}
+# Concatenate the city and state column
+df$Location <- paste(df$City, df$State, sep = ', ')
+```
+
+```{r Cities}
+output <- geocode_OSM(df$Location)
+# Save object externally because it takes a while to grab all the locations
+#saveRDS(output, file = "geo_codes.Rds")
+# Load data in
+#output <- readRDS("geo_codes.Rds")
+
+loc_geo <- st_as_sf(output, coords = c('lon','lat'), crs = 4326)
+loc_geo = st_transform(loc_geo, st_crs(usa))
+
+#df <- data.frame(apply(df, MARGIN = 2, FUN = as.character), stringsAsFactors = FALSE)
+#state_lst <- unique(df$State)
+#freq <- data.frame("name" = NA, "Schools" = NA)
+#for (item in state_lst){
+#  num <- sum(df$State == item)
+#  row <- c(item, num)
+#  freq <- rbind(freq, row)
+#}
+#
+#freq <- freq[complete.cases(freq), ]
+#freq$Schools <- as.integer(freq$Schools)
+#df_usa <- data.frame(usa, stringsAsFactors = FALSE)
+#df_freq <- join(df_usa, freq, by = "name", type = "left")
+
+plot(usa$geometry)
+plot(loc_geo$geometry, add = T)
+```
+
+```{r}
+tm_shape(usa) + 
+  tm_polygons() + 
+  tm_shape(loc_geo) + 
+  tm_bubbles(.1)
+```

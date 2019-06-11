@@ -1,0 +1,48 @@
+---
+title: "GeoCode_Application"
+author: "Beau Smit"
+date: "July 21, 2018"
+output: html_document
+runtime: shiny
+---
+
+```{r setup, include=FALSE}
+rm(list=ls())
+
+knitr::opts_chunk$set(echo = TRUE)
+
+library(albersusa)
+library(sf)
+library(shiny)
+library(tmap)
+```
+
+```{r}
+dat <- readRDS("All_School_GeoCodes_Cleaned.Rds")
+usa <- usa_sf('laea')
+
+loc_geo <- st_as_sf(dat, coords = c('lon','lat'), crs = 4326)
+loc_geo = st_transform(loc_geo, st_crs(usa))
+
+ui <- fluidPage(
+  checkboxGroupInput(inputId = "Division",
+              label = "Division",
+              width = '100px',
+              choiceNames = list("1", "2", "3"), 
+              choiceValues =  list(1, 2, 3), selected = "All"),
+  plotOutput("USAmap", width = "1600px", height = "800px")
+)
+
+server <- function(input, output){
+  output$USAmap <- renderPlot({
+    # Subset data
+    div <- unlist(lapply(input$Division, FUN = as.integer))
+    df <- loc_geo[(loc_geo$Division %in% div), ]
+    plot(usa$geometry, col = 0, lwd = 1.75)
+    plot(df$geometry, pch = 21, bg = as.factor(df$Conference), key.pos = 1, add = T)
+    })
+}
+
+shinyApp(ui=ui, server=server)
+```
+

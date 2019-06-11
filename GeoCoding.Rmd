@@ -1,0 +1,50 @@
+---
+title: "Geo-Coding"
+author: "Beau Smit"
+date: "July 16, 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(sf)
+library(albersusa)
+library(tmap)
+library(tmaptools)
+library(ggmap)
+library(googleway)
+library(gmapsdistance)
+
+```
+
+```{r USA}
+usa <- usa_sf('laea')
+# options: "longlat", "laea", "lcc", "eqdc", "aeqd"
+plot(usa$geometry)
+```
+
+```{r Cities}
+cities <- c('Minneapolis, MN', 'St. Paul, MN', 'Collegeville, MN', 'arden hills, mn', 'St. peter, MN', 'Northfield, MN', 'Moorhead, MN', 'Winona, MN')
+df <- data.frame(cities)
+df$cities <- as.character(df$cities)
+output <- geocode_OSM(df$cities)
+loc_geo <- st_as_sf(output, coords = c('lon','lat'), crs = 4326)
+loc_geo <- st_transform(loc_geo, st_crs(usa))
+#plot(usa$geometry)
+#plot(loc_geo$geometry, add = TRUE)
+
+MN <- usa[usa$name == "Minnesota", ]
+plot(MN$geometry)
+plot(loc_geo$geometry, add = T)
+```
+
+```{r}
+tm_shape(usa) + 
+  tm_polygons() + 
+  tm_shape(loc_geo) + 
+  tm_bubbles(.1)
+```
+
